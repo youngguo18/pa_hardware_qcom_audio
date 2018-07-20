@@ -2332,6 +2332,10 @@ static void set_platform_defaults(struct platform_data * my_data)
     backend_tag_table[SND_DEVICE_OUT_HEADPHONES_AND_HAPTICS] =
         strdup("headphones-and-haptics");
     backend_tag_table[SND_DEVICE_OUT_HEADPHONES_44_1] = strdup("headphones-44.1");
+#ifdef ENABLE_TFA98XX
+    backend_tag_table[SND_DEVICE_OUT_SPEAKER] = strdup("speaker");
+    backend_tag_table[SND_DEVICE_OUT_VOICE_SPEAKER] = strdup("speaker");
+#endif
     backend_tag_table[SND_DEVICE_OUT_VOICE_SPEAKER_VBAT] = strdup("voice-speaker-vbat");
     backend_tag_table[SND_DEVICE_OUT_VOICE_SPEAKER_2_VBAT] = strdup("voice-speaker-2-vbat");
     backend_tag_table[SND_DEVICE_OUT_BT_A2DP] = strdup("bt-a2dp");
@@ -4393,6 +4397,12 @@ int platform_get_snd_device_name_extn(void *platform, snd_device_t snd_device,
 
     return 0;
 }
+
+#ifdef ENABLE_TFA98XX
+const char* platform_get_backend_name(snd_device_t snd_device) {
+    return ((backend_tag_table[snd_device] != NULL) ? backend_tag_table[snd_device] : "null");
+}
+#endif
 
 void platform_add_backend_name(char *mixer_path, snd_device_t snd_device,
                                struct audio_usecase *usecase)

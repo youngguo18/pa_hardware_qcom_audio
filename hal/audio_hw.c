@@ -543,6 +543,73 @@ static int in_set_microphone_direction(const struct audio_stream_in *stream,
                                            audio_microphone_direction_t dir);
 static int in_set_microphone_field_dimension(const struct audio_stream_in *stream, float zoom);
 
+#ifdef ENABLE_TFA98XX
+enum exTfa98xx_Audio_Mode
+{
+    Audio_Mode_Music_Normal = 0,
+    Audio_Mode_Voice,
+    Audio_Mode_Ringtone
+};
+typedef enum exTfa98xx_Audio_Mode exTfa98xx_audio_mode_t;
+
+static exTfa98xx_audio_mode_t tfa_EQMode = Audio_Mode_Music_Normal;
+static int tfa_loaded = 0;
+static int tfa_calStatus = 0;
+static int tfa_open = 0;
+static int tfa_thread_on = 0;
+static int tfa_count = 0;
+pthread_mutex_t tfa_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t mycond = PTHREAD_COND_INITIALIZER;
+
+typedef int (*exTfa98xx_calibration_t)();
+typedef int (*exTfa98xx_speakeron_t)(int);
+typedef int (*exTfa98xx_speakeroff_t)();
+
+typedef struct tfa9890_device {
+    void *lib_ptr;
+    exTfa98xx_calibration_t exTfa98xx_calibration;
+    exTfa98xx_speakeron_t exTfa98xx_speakeron;
+    exTfa98xx_speakeroff_t exTfa98xx_speakeroff;
+} tfa9890_device_t;
+
+static tfa9890_device_t tfa9890_dev;
+
+void *tfa98xx_on_thread()
+{
+    while (1) {
+        if (tfa_thread_on) {
+            if (tfa_calStatus == 0) {
+                int ret = 0;
+
+                ALOGD("%s: calibration start", __func__);
+                usleep(40*1000);
+                
+                ret = tfa9890_dev.exTfa98xx_calibration();
+                if (ret == 0) {
+                    ALOGD("%s: calibration ok", __func__);
+                    tfa_calStatus = 1;
+                    tfa_open = 1;
+                } else {
+                    ALOGE("%s: calibration failed, ret=%d", __func__, ret);
+                    tfa9890_dev.exTfa98xx_speakeroff();
+                }
+            } else if (tfa_calStatus == 1) {
+                if (tfa_open == 0) {
+                    usleep(40*1000);
+                    tfa9890_dev.exTfa98xx_speakeron(tfa_EQMode);
+                    tfa_open = 1;
+                }
+            }
+            tfa_thread_on = 0;
+        }
+
+        pthread_mutex_lock(&tfa_mutex);
+        pthread_cond_wait(&mycond, &tfa_mutex);
+        pthread_mutex_unlock(&tfa_mutex);
+    }
+}
+#endif // ENABLE_TFA98XX
+
 static bool may_use_noirq_mode(struct audio_device *adev, audio_usecase_t uc_id,
                                int flags __unused)
 {
@@ -1179,6 +1246,32 @@ int pcm_ioctl(struct pcm *pcm, int request, ...)
     return ioctl(pcm_fd, request, arg);
 }
 
+#ifdef ENABLE_TFA98XX
+void controlSpeakerAmp(bool enable)
+{
+    if (tfa_loaded == 0) {
+        return;
+    }
+    
+    if (enable) {
+        ALOGD("%s: enable speaker amplifier, tfa_open=%d, tfa_thread_on=%d", __func__, tfa_open, tfa_thread_on);
+        if (tfa_open == 0 && tfa_thread_on == 0) {
+            tfa_thread_on = 1;
+            pthread_mutex_lock(&tfa_mutex);
+            pthread_cond_signal(&mycond);
+            pthread_mutex_unlock(&tfa_mutex);
+        }
+    } else {
+        ALOGD("%s: disable speaker amplifier, tfa_open=%d, tfa_thread_on=%d", __func__, tfa_open, tfa_thread_on);
+        if (tfa_open == 1 && tfa_calStatus == 1) {
+           tfa9890_dev.exTfa98xx_speakeroff();
+           tfa_open = 0;
+           usleep(20*1000);
+        }
+    }
+}
+#endif // ENABLE_TFA98XX
+
 int enable_audio_route(struct audio_device *adev,
                        struct audio_usecase *usecase)
 {
@@ -1277,6 +1370,29 @@ int enable_audio_route(struct audio_device *adev,
             str_parms_destroy(parms);
         }
     }
+
+#ifdef ENABLE_TFA98XX
+    if (voice_is_in_call(adev) || adev->mode == AUDIO_MODE_IN_COMMUNICATION || voice_extn_compress_voip_is_active(adev)) {
+        tfa_EQMode = Audio_Mode_Voice;
+        ALOGD("%s: set tfa_EQMode to Audio_Mode_Voice", __func__);
+    } else {
+        tfa_EQMode = Audio_Mode_Music_Normal;
+        ALOGD("%s: set tfa_EQMode to Audio_Mode_Music_Normal", __func__);
+    }
+
+    const char * suffix = platform_get_backend_name(snd_device);
+    if (!strncmp("speaker", suffix, sizeof("speaker") - 1)) {
+        tfa_count++;
+        ALOGD("%s: backend name includes speaker (%s), tfa_count=%d", __func__, suffix, tfa_count);
+    } else {
+        ALOGD("%s: backend name not include speaker (%s), tfa_count=%d", __func__, suffix, tfa_count);
+    }
+
+    if (tfa_count > 0) {
+        controlSpeakerAmp(true);
+    }
+#endif // ENABLE_TFA98XX
+
     ALOGV("%s: exit", __func__);
     return 0;
 }
@@ -1353,6 +1469,21 @@ int disable_audio_route(struct audio_device *adev,
     if ((usecase->type == PCM_PLAYBACK) &&
             (usecase->stream.out != NULL))
         usecase->stream.out->pspd_coeff_sent = false;
+
+#ifdef ENABLE_TFA98XX
+    const char * suffix = platform_get_backend_name(snd_device);
+    if (!strncmp("speaker", suffix, sizeof("speaker") - 1)) {
+        tfa_count--;
+        ALOGD("%s: backend name includes speaker (%s), tfa_count=%d", __func__, suffix, tfa_count);
+    } else {
+        ALOGD("%s: backend name not include speaker (%s), tfa_count=%d", __func__, suffix, tfa_count);
+    }
+
+    if (tfa_count <= 0) {
+        tfa_count = 0;
+        //controlSpeakerAmp(false);
+    }
+#endif // ENABLE_TFA98XX
 
     ALOGV("%s: exit", __func__);
     return 0;
@@ -7670,6 +7801,93 @@ static void in_update_sink_metadata(struct audio_stream_in *stream,
     pthread_mutex_unlock(&in->lock);
 }
 
+#ifdef ENABLE_TFA98XX
+static int pcm_open_device(struct stream_out *out)
+{
+    const char *mixer_ctl_name = TFA98XX_CTL_NAME;
+    struct mixer_ctl *ctl;
+    int ret = 0;
+
+    ctl = mixer_get_ctl_by_name(adev->mixer, mixer_ctl_name);
+    if (!ctl)
+        ALOGE("%s: Could not get mixer cmd", __func__);
+
+    if (mixer_ctl_set_value(ctl, 0, 1) < 0)
+        ALOGE("%s: Could not set mixer mode ", __func__);
+
+    if (!is_offload_usecase(out->usecase)) {
+        unsigned int flags_test = PCM_OUT;
+        unsigned int pcm_open_retry_count = 0;
+        if (out->usecase == USECASE_AUDIO_PLAYBACK_AFE_PROXY) {
+            flags_test |= PCM_MMAP | PCM_NOIRQ;
+            pcm_open_retry_count = PROXY_OPEN_RETRY_COUNT;
+        } else {
+            flags_test |= PCM_MONOTONIC;
+        }
+
+        while (1) {
+            out->pcm = pcm_open(adev->snd_card, out->pcm_device_id,
+                               flags_test, &out->config);
+            if (out->pcm == NULL || !pcm_is_ready(out->pcm)) {
+                ALOGE("%s: %s", __func__, pcm_get_error(out->pcm));
+                if (out->pcm != NULL) {
+                    pcm_close(out->pcm);
+                    out->pcm = NULL;
+                }
+                if (pcm_open_retry_count-- == 0) {
+                    ret = -EIO;
+                    ALOGE("%s: pcm_open_retry_count returned %d", __func__, ret);
+                    pcm_close(out->pcm);
+                    if (mixer_ctl_set_value(ctl, 0, 0) < 0)
+                        ALOGE("%s: Could not set mixer mode ", __func__);
+                    return ret;
+                }
+                usleep(PROXY_OPEN_WAIT_TIME * 1000);
+                continue;
+            }
+            break;
+        }
+
+        ALOGV("%s: pcm_prepare", __func__);
+        if (pcm_is_ready(out->pcm)) {
+            ret = pcm_prepare(out->pcm);
+            if (ret < 0) {
+                ALOGE("%s: pcm_prepare returned %d", __func__, ret);
+                goto error_open;
+            }
+        }
+
+        platform_set_stream_channel_map(adev->platform, out->channel_mask,
+                   out->pcm_device_id, &out->channel_map_param.channel_map[0]);
+    }
+
+    ret = tfa9890_dev.exTfa98xx_calibration();
+
+    if (ret == 0) {
+        ALOGD("%s: exTfa98xx_calibration success", __func__);
+        tfa_calStatus = 1;
+    } else {
+        ALOGE("%s: exTfa98xx_calibration fail", __func__);
+        goto error_open;
+    }
+
+    if (mixer_ctl_set_value(ctl, 0, 0) < 0)
+        ALOGE("%s: Could not set mixer mode ", __func__);
+
+    pcm_close(out->pcm);
+    out->pcm = NULL;
+    return 0;
+
+error_open:
+    pcm_close(out->pcm);
+    out->pcm = NULL;
+    if (mixer_ctl_set_value(ctl, 0, 0) < 0)
+        ALOGE("%s: Could not set mixer mode ", __func__);
+    ALOGE("%s: exit: ret %d", __func__, ret);
+    return ret;
+}
+#endif // ENABLE_TFA98XX
+
 int adev_open_output_stream(struct audio_hw_device *dev,
                             audio_io_handle_t handle,
                             audio_devices_t devices,
@@ -8485,6 +8703,16 @@ int adev_open_output_stream(struct audio_hw_device *dev,
         out->af_period_multiplier = 1;
 
     out->kernel_buffer_size = out->config.period_size * out->config.period_count;
+
+#ifdef ENABLE_TFA98XX
+    if (tfa_calStatus == 0 && tfa_loaded == 1) {
+        ret = pcm_open_device(out);
+        if (ret == 0)
+            ALOGD("%s: pcm_open_device open success", __func__);
+        else
+            ALOGE("%s: pcm_open_device open fail", __func__);
+    }
+#endif // ENABLE_TFA98XX
 
     out->standby = 1;
     /* out->muted = false; by calloc() */
@@ -10740,6 +10968,38 @@ static int adev_open(const hw_module_t *module, const char *name,
               __func__, mixer_ctl_name);
         adev->use_old_pspd_mix_ctrl = true;
     }
+
+
+#ifdef ENABLE_TFA98XX
+    tfa_loaded = 0;
+    tfa9890_dev.lib_ptr = dlopen(TFA98XX_LIB_NAME, RTLD_NOW);
+    if (tfa9890_dev.lib_ptr != NULL) {
+        tfa9890_dev.exTfa98xx_calibration = (exTfa98xx_calibration_t)dlsym(tfa9890_dev.lib_ptr, TFA98XX_FUNC_CALIBRATION);
+        tfa9890_dev.exTfa98xx_speakeron = (exTfa98xx_speakeron_t)dlsym(tfa9890_dev.lib_ptr, TFA98XX_FUNC_SPEAKERON);
+        tfa9890_dev.exTfa98xx_speakeroff = (exTfa98xx_speakeroff_t)dlsym(tfa9890_dev.lib_ptr, TFA98XX_FUNC_SPEAKEROFF);
+    } else {
+        ALOGE("%s: failed to load tfa98xx library %s", __func__, TFA98XX_LIB_NAME);
+    }
+
+    if (tfa9890_dev.exTfa98xx_calibration != NULL && tfa9890_dev.exTfa98xx_speakeron != NULL && tfa9890_dev.exTfa98xx_speakeroff != NULL) {
+        tfa_loaded = 1;
+    }
+    
+    if (tfa_loaded == 1) {
+        ALOGD("%s: tfa98xx: initailize", __func__);
+
+        pthread_t tfa98xx_thread;
+        int tfa_ret = 0;
+        tfa_count = 0;
+        pthread_mutex_lock(&tfa_mutex);
+        ALOGD("%s: tfa98xx: create tfa open thread", __func__);
+        tfa_ret = pthread_create(&tfa98xx_thread, NULL, tfa98xx_on_thread, NULL);
+        if (tfa_ret != 0) {
+            ALOGE("%s: tfa98xx: pthread_create failed", __func__);
+        }
+        pthread_mutex_unlock(&tfa_mutex);
+    }
+#endif // ENABLE_TFA98XX
 
     ALOGV("%s: exit", __func__);
     return 0;
