@@ -130,6 +130,9 @@ int platform_get_snd_device_name_extn(void *platform, snd_device_t snd_device,
                                       char *device_name);
 void platform_add_backend_name(char *mixer_path, snd_device_t snd_device,
                                struct audio_usecase *usecase);
+#ifdef ENABLE_TFA98XX
+const char* platform_get_backend_name(snd_device_t snd_device);
+#endif
 bool platform_send_gain_dep_cal(void *platform, int level);
 int platform_get_pcm_device_id(audio_usecase_t usecase, int device_type);
 int platform_get_snd_device_index(char *snd_device_index_name);

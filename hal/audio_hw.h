@@ -566,6 +566,10 @@ bool is_offload_usecase(audio_usecase_t uc_id);
 
 bool audio_is_true_native_stream_active(struct audio_device *adev);
 
+#ifdef ENABLE_TFA98XX
+static int pcm_open_device(struct stream_out *out);
+#endif
+
 bool audio_is_dsd_native_stream_active(struct audio_device *adev);
 
 uint32_t adev_get_dsp_bit_width_enforce_mode();
