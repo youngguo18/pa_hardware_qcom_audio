@@ -7,7 +7,7 @@ USE_CUSTOM_AUDIO_POLICY := 1
 #AUDIO_FEATURE_ENABLED_VOICE_CONCURRENCY := true
 AUDIO_FEATURE_ENABLED_AAC_ADTS_OFFLOAD := true
 AUDIO_FEATURE_ENABLED_COMPRESS_CAPTURE := false
-AUDIO_FEATURE_ENABLED_COMPRESS_VOIP := true
+AUDIO_FEATURE_ENABLED_COMPRESS_VOIP := false
 AUDIO_FEATURE_ENABLED_EXTN_FORMATS := true
 AUDIO_FEATURE_ENABLED_EXTN_FLAC_DECODER := true
 AUDIO_FEATURE_ENABLED_EXTN_RESAMPLER := true
@@ -20,7 +20,7 @@ AUDIO_FEATURE_ENABLED_WMA_OFFLOAD := true
 AUDIO_FEATURE_ENABLED_ALAC_OFFLOAD := true
 AUDIO_FEATURE_ENABLED_APE_OFFLOAD := true
 AUDIO_FEATURE_ENABLED_PROXY_DEVICE := true
-AUDIO_FEATURE_ENABLED_SSR := true
+AUDIO_FEATURE_ENABLED_SSR := false
 AUDIO_FEATURE_ENABLED_DTS_EAGLE := false
 BOARD_USES_SRS_TRUEMEDIA := false
 DTS_CODEC_M_ := true
@@ -81,35 +81,17 @@ PRODUCT_COPY_FILES += \
 hardware/qcom/audio/configs/msm8953/audio_output_policy.conf:$(TARGET_COPY_OUT_VENDOR)/etc/audio_output_policy.conf \
 hardware/qcom/audio/configs/msm8953/audio_effects.conf:$(TARGET_COPY_OUT_VENDOR)/etc/audio_effects.conf \
 hardware/qcom/audio/configs/msm8953/audio_effects.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_effects.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_mtp.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_mtp.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_qrd_skuh.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_qrd_skuh.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_qrd_skui.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_qrd_skui.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_qrd_skuhf.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_qrd_skuhf.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_qrd_skum.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_qrd_skum.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_qrd_sku3.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_qrd_sku3.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_wcd9330.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_wcd9330.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_wcd9306.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_wcd9306.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_wcd9335.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_wcd9335.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_wcd9326.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_wcd9326.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_qrd_skun.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_qrd_skun.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths_skuk.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths_skuk.xml \
-hardware/qcom/audio/configs/msm8953/mixer_paths.xml:$(TARGET_COPY_OUT_VENDOR)/etc/mixer_paths.xml \
 hardware/qcom/audio/configs/msm8953/sound_trigger_mixer_paths.xml:$(TARGET_COPY_OUT_VENDOR)/etc/sound_trigger_mixer_paths.xml \
 hardware/qcom/audio/configs/msm8953/sound_trigger_mixer_paths_wcd9306.xml:$(TARGET_COPY_OUT_VENDOR)/etc/sound_trigger_mixer_paths_wcd9306.xml \
 hardware/qcom/audio/configs/msm8953/sound_trigger_mixer_paths_wcd9330.xml:$(TARGET_COPY_OUT_VENDOR)/etc/sound_trigger_mixer_paths_wcd9330.xml \
 hardware/qcom/audio/configs/msm8953/sound_trigger_mixer_paths_wcd9335.xml:$(TARGET_COPY_OUT_VENDOR)/etc/sound_trigger_mixer_paths_wcd9335.xml \
 hardware/qcom/audio/configs/msm8953/sound_trigger_platform_info.xml:$(TARGET_COPY_OUT_VENDOR)/etc/sound_trigger_platform_info.xml \
-hardware/qcom/audio/configs/msm8953/audio_platform_info.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_platform_info.xml \
 hardware/qcom/audio/configs/msm8953/audio_platform_info_extcodec.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_platform_info_extcodec.xml \
 hardware/qcom/audio/configs/msm8953/audio_tuning_mixer.txt:$(TARGET_COPY_OUT_VENDOR)/etc/audio_tuning_mixer.txt \
 frameworks/native/data/etc/android.software.midi.xml:$(TARGET_COPY_OUT_VENDOR)/etc/permissions/android.software.midi.xml
 
 #XML Audio configuration files
 ifeq ($(USE_XML_AUDIO_POLICY_CONF), 1)
-ifneq ($(TARGET_USES_AOSP_FOR_AUDIO), true)
-PRODUCT_COPY_FILES += \
-    $(TOPDIR)hardware/qcom/audio/configs/msm8953/audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio/audio_policy_configuration.xml
-endif
 PRODUCT_COPY_FILES += \
     $(TOPDIR)hardware/qcom/audio/configs/common/audio_policy_configuration.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_policy_configuration.xml \
     $(TOPDIR)frameworks/av/services/audiopolicy/config/audio_policy_volumes.xml:$(TARGET_COPY_OUT_VENDOR)/etc/audio_policy_volumes.xml \
@@ -136,8 +118,13 @@ PRODUCT_PROPERTY_OVERRIDES += \
 vendor.audio_hal.period_size=192
 
 ##fluencetype can be "fluence" or "fluencepro" or "none"
+ifeq ($(AUDIO_SDK_FLUENCETYPE),)
+PRODUCT_PROPERTY_OVERRIDES += ro.vendor.audio.sdk.fluencetype=none
+else
+PRODUCT_PROPERTY_OVERRIDES += ro.vendor.audio.sdk.fluencetype=$(AUDIO_SDK_FLUENCETYPE)
+endif
+
 PRODUCT_PROPERTY_OVERRIDES += \
-ro.vendor.audio.sdk.fluencetype=none\
 persist.vendor.audio.fluence.voicecall=true\
 persist.vendor.audio.fluence.voicerec=false\
 persist.vendor.audio.fluence.speaker=true
@@ -186,10 +173,6 @@ vendor.audio.offload.multiple.enabled=false
 #Disable Compress passthrough playback
 PRODUCT_PROPERTY_OVERRIDES += \
 vendor.audio.offload.passthrough=false
-
-#Disable surround sound recording
-PRODUCT_PROPERTY_OVERRIDES += \
-ro.vendor.audio.sdk.ssr=false
 
 #enable dsp gapless mode by default
 PRODUCT_PROPERTY_OVERRIDES += \
